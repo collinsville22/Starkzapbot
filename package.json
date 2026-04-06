@@ -1,0 +1,26 @@
+{
+  "name": "starkzap-tg",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev -w packages/backend",
+    "dev:bot": "npm run dev -w packages/bot",
+    "dev:mini-app": "npm run dev -w packages/mini-app",
+    "build": "npm run build -w packages/shared && npm run build -w packages/backend && npm run build -w packages/bot && npm run build -w packages/mini-app",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:bot\" \"npm run dev:mini-app\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  },
+  "optionalDependencies": {
+    "@cartridge/controller": "*",
+    "@fatsolutions/tongo-sdk": "^1.4.0",
+    "ethers": "^6.16.0"
+  },
+  "dependencies": {
+    "@walletconnect/ethereum-provider": "^2.23.9"
+  }
+}

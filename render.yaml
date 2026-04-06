@@ -1,0 +1,51 @@
+services:
+  - type: web
+    name: starkzap-backend
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npx tsx packages/backend/src/index.ts
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BACKEND_PORT
+        value: "3001"
+      - key: BOT_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ENCRYPTION_KEY
+        sync: false
+      - key: DB_ENCRYPTION_KEY
+        sync: false
+      - key: STARKNET_NETWORK
+        value: mainnet
+      - key: STARKNET_RPC_URL
+        value: https://rpc.starknet.lava.build
+      - key: DB_PATH
+        value: /data/starkzap.db
+      - key: CORS_ORIGIN
+        value: https://starkzap.vercel.app
+      - key: MINI_APP_URL
+        value: https://starkzap.vercel.app
+    disk:
+      name: starkzap-data
+      mountPath: /data
+      sizeGB: 1
+
+  - type: worker
+    name: starkzap-bot
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npx tsx packages/bot/src/index.ts
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BOT_TOKEN
+        sync: false
+      - key: BACKEND_URL
+        value: https://starkzap-backend.onrender.com
+      - key: MINI_APP_URL
+        value: https://starkzap.vercel.app

@@ -16,7 +16,7 @@ function getBotToken() {
  */
 function signBotAuth(telegramId: number, timestamp: number): string {
   const botToken = getBotToken();
-  const message = `bot:${telegramId}:${timestamp}`;
+  const message = `${telegramId}:${timestamp}`;
   return createHmac("sha256", botToken).update(message).digest("hex");
 }
 

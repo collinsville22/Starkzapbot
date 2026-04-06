@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@starkzap-tg/shared": "*",
+    "starknet": "^9.2.0",
+    "starkzap": "^2.0.0",
     "@telegram-apps/sdk-react": "^3.3.0",
     "@telegram-apps/telegram-ui": "^2.1.0",
     "@tanstack/react-query": "^5.75.0",

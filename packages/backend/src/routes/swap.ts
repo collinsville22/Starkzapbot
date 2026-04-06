@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Amount } from "starkzap";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 
@@ -15,7 +15,7 @@ swap.post("/quote", async (c) => {
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token", message: "Unknown token symbol" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const amount = Amount.parse(amountIn, tokenIn.decimals, tokenIn.symbol);
 
     const quote = await wallet.getQuote({
@@ -47,7 +47,7 @@ swap.post("/execute", async (c) => {
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token", message: "Unknown token symbol" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const amount = Amount.parse(amountIn, tokenIn.decimals, tokenIn.symbol);
 
     const tx = await wallet.swap({
@@ -80,7 +80,7 @@ advancedSwapRoutes.post("/estimate-fee", async (c) => {
   const tokenOut = resolveToken(tokenOutSymbol);
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const prepared = await wallet.prepareSwap({
       tokenIn: toStarkzapToken(tokenIn), tokenOut: toStarkzapToken(tokenOut),
       amountIn: Amount.parse(amount, tokenIn.decimals, tokenIn.symbol),
@@ -104,7 +104,7 @@ advancedSwapRoutes.post("/preflight", async (c) => {
   const tokenOut = resolveToken(tokenOutSymbol);
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const prepared = await wallet.prepareSwap({
       tokenIn: toStarkzapToken(tokenIn), tokenOut: toStarkzapToken(tokenOut),
       amountIn: Amount.parse(amount, tokenIn.decimals, tokenIn.symbol),
@@ -123,7 +123,7 @@ advancedSwapRoutes.post("/swap", async (c) => {
   const tokenOut = resolveToken(tokenOutSymbol);
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.swap({
       tokenIn: toStarkzapToken(tokenIn), tokenOut: toStarkzapToken(tokenOut),
       amountIn: Amount.parse(amount, tokenIn.decimals, tokenIn.symbol),
@@ -145,7 +145,7 @@ advancedSwapRoutes.post("/quote", async (c) => {
   const tokenOut = resolveToken(tokenOutSymbol);
   if (!tokenIn || !tokenOut) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const quote = await wallet.getQuote({
       tokenIn: toStarkzapToken(tokenIn), tokenOut: toStarkzapToken(tokenOut),
       amountIn: Amount.parse(amount, tokenIn.decimals, tokenIn.symbol),
@@ -164,7 +164,7 @@ advancedSwapRoutes.post("/quote", async (c) => {
 advancedSwapRoutes.get("/swap-providers", async (c) => {
   const user = c.get("user") as DbUser;
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const providers = wallet.listSwapProviders();
     const def = wallet.getDefaultSwapProvider();
     return c.json({ providers, default: def?.id || providers[0] });

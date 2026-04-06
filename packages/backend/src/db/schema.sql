@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   telegram_id INTEGER UNIQUE NOT NULL,
   username TEXT,
   wallet_address TEXT NOT NULL,
-  encrypted_private_key TEXT NOT NULL,
+  encrypted_private_key TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 

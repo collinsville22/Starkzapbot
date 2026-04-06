@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Amount, AvnuDcaProvider } from "starkzap";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 
@@ -16,7 +16,7 @@ dca.get("/orders", async (c) => {
   const user = c.get("user") as DbUser;
   const status = c.req.query("status") as any;
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     ensureDcaProvider(wallet);
     const result = await wallet.dca().getOrders({ status: status || undefined });
     return c.json({
@@ -53,7 +53,7 @@ dca.post("/create", async (c) => {
   if (!sellToken || !buyToken) return c.json({ error: "invalid_token" }, 400);
   if (!frequency) return c.json({ error: "frequency_required" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     ensureDcaProvider(wallet);
     const tx = await wallet.dca().create({
       sellToken: toStarkzapToken(sellToken), buyToken: toStarkzapToken(buyToken),
@@ -73,7 +73,7 @@ dca.post("/cancel", async (c) => {
   const user = c.get("user") as DbUser;
   const { orderId, orderAddress } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     ensureDcaProvider(wallet);
     const tx = await wallet.dca().cancel({ orderId, orderAddress });
     logTransaction(user.id, "dca", JSON.stringify({ action: "cancel", orderId }), tx.hash);
@@ -91,7 +91,7 @@ dca.post("/preview", async (c) => {
   const buyToken = resolveToken(buyTokenSymbol);
   if (!sellToken || !buyToken) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     ensureDcaProvider(wallet);
     const quote = await wallet.dca().previewCycle({
       sellToken: toStarkzapToken(sellToken), buyToken: toStarkzapToken(buyToken),

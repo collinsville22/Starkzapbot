@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { ExternalChain, Amount } from "starkzap";
-import { getSdk, getWalletForUser } from "../services/starkzap.js";
+import { getSdk, getReadOnlyWallet } from "../services/starkzap.js";
 import { getAllTokens } from "../services/tokens.js";
 import { logTransaction, type DbUser } from "../services/db.js";
 
@@ -52,7 +52,7 @@ bridge.post("/estimate", async (c) => {
       return c.json({ error: "token_not_found", message: `${tokenSymbol} not bridgeable from ${chain}` }, 400);
     }
 
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
 
     return c.json({
       token: { symbol: bridgeToken.symbol, name: bridgeToken.name, decimals: bridgeToken.decimals },

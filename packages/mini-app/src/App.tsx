@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TabBar } from "./components/TabBar.js";
+import { PinModal } from "./components/PinModal.js";
 import { Home } from "./pages/Home.js";
 import { Swap } from "./pages/Swap.js";
 import { Bridge } from "./pages/Bridge.js";
@@ -12,6 +13,7 @@ import { Send } from "./pages/Send.js";
 import { Activity } from "./pages/Activity.js";
 import { useTelegram } from "./hooks/useTelegram.js";
 import { useWallet } from "./hooks/useWallet.js";
+import { useClientWallet } from "./hooks/useClientWallet.js";
 import { useTokens } from "./hooks/useTokens.js";
 import { SegmentedControl } from "./components/SegmentedControl.js";
 
@@ -81,16 +83,13 @@ function HeaderBar() {
 
 function AppRoutes() {
   const { initData, startParam } = useTelegram();
-  const { login, isAuthenticated, isLoading, error } = useWallet();
+  const { login, isAuthenticated, isLoading: authLoading } = useWallet();
+  const clientWallet = useClientWallet();
   const { load: loadTokens } = useTokens();
   const navigate = useNavigate();
+  const [pinError, setPinError] = useState("");
 
-  useEffect(() => {
-    loadTokens();
-    if (!isAuthenticated && !isLoading && !error) {
-      login(initData || "dev");
-    }
-  }, []);
+  useEffect(() => { loadTokens(); }, []);
 
   useEffect(() => {
     if (startParam) {
@@ -101,19 +100,47 @@ function AppRoutes() {
     }
   }, [startParam]);
 
-  if (isLoading && !error) {
+  useEffect(() => {
+    if (clientWallet.isReady && clientWallet.address && !isAuthenticated && !authLoading) {
+      login(initData || "", clientWallet.address);
+    }
+  }, [clientWallet.isReady, clientWallet.address, isAuthenticated, authLoading]);
+
+  const handlePinSubmit = async (pin: string) => {
+    setPinError("");
+    if (clientWallet.needsSetup) {
+      const addr = await clientWallet.setup(pin);
+      if (!addr) setPinError("Failed to create wallet");
+    } else {
+      const ok = await clientWallet.unlock(pin);
+      if (!ok) setPinError("Wrong PIN");
+    }
+  };
+
+  if (clientWallet.loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-black relative overflow-hidden">
         <div className="absolute w-[400px] h-[400px] rounded-full top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2" style={{ background: "radial-gradient(circle, rgba(250,96,5,0.1) 0%, transparent 60%)", filter: "blur(60px)" }} />
         <div className="text-center relative z-10 animate-in">
           <img src="/logo.jpg" alt="StarkZap" className="w-20 h-20 rounded-2xl mx-auto mb-5 pulse-glow shadow-lg shadow-orange-500/30" />
           <h2 className="text-2xl font-extrabold text-white tracking-tight mb-1">StarkZap</h2>
-          <p className="text-sm text-sz-text-muted font-semibold">Setting up your wallet...</p>
+          <p className="text-sm text-sz-text-muted font-semibold">Loading...</p>
           <div className="mt-5 flex justify-center">
             <div className="w-7 h-7 border-[2.5px] border-sz-orange/20 border-t-sz-orange rounded-full animate-spin" />
           </div>
         </div>
       </div>
+    );
+  }
+
+  if (clientWallet.needsSetup || clientWallet.isLocked) {
+    return (
+      <PinModal
+        isOpen
+        mode={clientWallet.needsSetup ? "create" : "unlock"}
+        onSubmit={handlePinSubmit}
+        error={pinError || clientWallet.error || undefined}
+      />
     );
   }
 

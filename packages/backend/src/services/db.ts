@@ -25,7 +25,7 @@ export interface DbUser {
   telegram_id: number;
   username: string | null;
   wallet_address: string;
-  encrypted_private_key: string;
+  encrypted_private_key: string | null;
   created_at: string;
 }
 
@@ -45,12 +45,11 @@ export function createUser(
   telegramId: number,
   username: string | null,
   walletAddress: string,
-  encryptedKey: string
 ): DbUser {
   const db = getDb();
   db.prepare(
-    "INSERT INTO users (telegram_id, username, wallet_address, encrypted_private_key) VALUES (?, ?, ?, ?)"
-  ).run(telegramId, username, walletAddress, encryptedKey);
+    "INSERT INTO users (telegram_id, username, wallet_address) VALUES (?, ?, ?)"
+  ).run(telegramId, username, walletAddress);
   return getUserByTelegramId(telegramId)!;
 }
 

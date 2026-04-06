@@ -1,9 +1,8 @@
 import { Hono } from "hono";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { getTokenList, toStarkzapToken } from "../services/tokens.js";
 import { getTokenPrices } from "../services/prices.js";
 import type { DbUser } from "../services/db.js";
-import type { TokenBalance } from "@starkzap-tg/shared";
 
 const portfolio = new Hono();
 
@@ -11,8 +10,7 @@ portfolio.get("/", async (c) => {
   const user = c.get("user") as DbUser;
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
-    const realAddress = wallet.address as string;
+    const wallet = await getReadOnlyWallet(user.wallet_address);
 
     const tokenList = getTokenList();
 
@@ -44,7 +42,7 @@ portfolio.get("/", async (c) => {
     });
 
     return c.json({
-      walletAddress: realAddress,
+      walletAddress: user.wallet_address,
       balances: balancesWithUsd,
       totalUsd: Math.round(totalUsd * 100) / 100,
       prices,

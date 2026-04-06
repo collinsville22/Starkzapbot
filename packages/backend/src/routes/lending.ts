@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Amount } from "starkzap";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken, getAllTokens } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 
@@ -9,7 +9,7 @@ const lending = new Hono();
 lending.get("/markets", async (c) => {
   const user = c.get("user") as DbUser;
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const markets = await wallet.lending().getMarkets();
     const tokenPresets = getAllTokens();
 
@@ -44,7 +44,7 @@ lending.get("/markets", async (c) => {
 lending.get("/positions", async (c) => {
   const user = c.get("user") as DbUser;
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const positions = await wallet.lending().getPositions();
     const tokenPresets = getAllTokens();
 
@@ -84,7 +84,7 @@ lending.post("/health", async (c) => {
   if (!collateralToken || !debtToken) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const health = await wallet.lending().getHealth({
       collateralToken: toStarkzapToken(collateralToken),
       debtToken: toStarkzapToken(debtToken),
@@ -107,7 +107,7 @@ lending.post("/deposit", async (c) => {
   if (!token) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.lending().deposit({ token: toStarkzapToken(token), amount: Amount.parse(amount, token.decimals, token.symbol), poolAddress: poolAddress as any });
     logTransaction(user.id, "lend", JSON.stringify({ action: "deposit", tokenSymbol, amount }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -124,7 +124,7 @@ lending.post("/withdraw", async (c) => {
   if (!token) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.lending().withdraw({ token: toStarkzapToken(token), amount: Amount.parse(amount, token.decimals, token.symbol), poolAddress: poolAddress as any });
     logTransaction(user.id, "lend", JSON.stringify({ action: "withdraw", tokenSymbol, amount }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -142,7 +142,7 @@ lending.post("/borrow", async (c) => {
   if (!collateralToken || !debtToken) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const borrowRequest: any = {
       collateralToken: toStarkzapToken(collateralToken),
       debtToken: toStarkzapToken(debtToken),
@@ -170,7 +170,7 @@ lending.post("/repay", async (c) => {
   if (!collateralToken || !debtToken) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.lending().repay({ collateralToken: toStarkzapToken(collateralToken), debtToken: toStarkzapToken(debtToken), amount: Amount.parse(amount, debtToken.decimals, debtToken.symbol), poolAddress: poolAddress as any });
     logTransaction(user.id, "lend", JSON.stringify({ action: "repay", collateralTokenSymbol, debtTokenSymbol, amount }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -189,7 +189,7 @@ lending.post("/estimate-max-borrow", async (c) => {
   if (!collateralAmount || parseFloat(collateralAmount) <= 0) return c.json({ maxBorrow: "0" });
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const provider = wallet.getProvider();
 
     let pool = poolAddress;
@@ -247,7 +247,7 @@ lending.post("/withdraw-max", async (c) => {
   if (!token) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.lending().withdrawMax({ token: toStarkzapToken(token), poolAddress: poolAddress as any });
     logTransaction(user.id, "lend", JSON.stringify({ action: "withdraw_max", tokenSymbol }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -265,7 +265,7 @@ lending.post("/max-borrow", async (c) => {
   if (!collateralToken || !debtToken) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const maxBorrow = await wallet.lending().getMaxBorrowAmount({
       collateralToken: toStarkzapToken(collateralToken),
       debtToken: toStarkzapToken(debtToken),
@@ -289,7 +289,7 @@ advancedLendingRoutes.post("/lending-health-quote", async (c) => {
   const debtToken = resolveToken(debtTokenSymbol);
   if (!collateralToken || !debtToken) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const szC = toStarkzapToken(collateralToken);
     const szD = toStarkzapToken(debtToken);
     const health = { collateralToken: szC, debtToken: szD, poolAddress: poolAddress as any };

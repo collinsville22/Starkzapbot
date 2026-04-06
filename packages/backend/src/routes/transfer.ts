@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Amount } from "starkzap";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 
@@ -14,7 +14,7 @@ transfer.post("/send", async (c) => {
   if (!recipient) return c.json({ error: "invalid_recipient", message: "Recipient required" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.transfer(toStarkzapToken(token), [{ to: recipient as any, amount: Amount.parse(amount, token.decimals, token.symbol) }]);
     const txHash = tx.hash || (tx as any).transactionHash;
     logTransaction(user.id, "transfer", JSON.stringify({ tokenSymbol, amount, recipient }), txHash);
@@ -35,7 +35,7 @@ advancedTransferRoutes.post("/batch-transfer", async (c) => {
   const token = resolveToken(tokenSymbol);
   if (!token) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const szToken = toStarkzapToken(token);
     const szTransfers = transfers.map((t: any) => ({
       to: t.to as any,

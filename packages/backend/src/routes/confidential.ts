@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { TongoConfidential, Amount } from "starkzap";
-import { getWalletForUser } from "../services/starkzap.js";
+import { getReadOnlyWallet } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 
@@ -48,7 +48,7 @@ function createTongoProvider(wallet: any, tokenSymbol: string) {
 confidential.get("/my-id", async (c) => {
   const user = c.get("user") as DbUser;
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tongo = createTongoProvider(wallet, "STRK");
     return c.json({
       recipientId: { x: tongo.recipientId.x.toString(), y: tongo.recipientId.y.toString() },
@@ -68,7 +68,7 @@ confidential.post("/resolve", async (c) => {
     const targetUser = db.prepare("SELECT * FROM users WHERE wallet_address = ?").get(walletAddress) as any;
     if (!targetUser) return c.json({ error: "user_not_found", message: "This address is not a StarkZap user" }, 404);
 
-    const targetWallet = await getWalletForUser(targetUser.telegram_id, targetUser.encrypted_private_key);
+    const targetWallet = await getReadOnlyWallet(targetUser.wallet_address);
     const tongo = createTongoProvider(targetWallet, "STRK");
     return c.json({
       recipientId: { x: tongo.recipientId.x.toString(), y: tongo.recipientId.y.toString() },
@@ -83,7 +83,7 @@ confidential.post("/balance", async (c) => {
   const user = c.get("user") as DbUser;
   const { tokenSymbol } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tongo = createTongoProvider(wallet, tokenSymbol);
     const state = await tongo.getState();
     return c.json({
@@ -104,7 +104,7 @@ confidential.post("/fund", async (c) => {
   const token = resolveToken(tokenSymbol);
   if (!token) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tongo = createTongoProvider(wallet, tokenSymbol);
     const fundAmount = Amount.parse(amount, token.decimals, token.symbol);
 
@@ -134,7 +134,7 @@ confidential.post("/transfer", async (c) => {
       const { db } = await import("../services/db.js");
       const targetUser = db.prepare("SELECT * FROM users WHERE wallet_address = ?").get(recipientAddress) as any;
       if (!targetUser) return c.json({ error: "user_not_found", message: "Recipient is not a StarkZap user. For external recipients, use X/Y coordinates." }, 404);
-      const targetWallet = await getWalletForUser(targetUser.telegram_id, targetUser.encrypted_private_key);
+      const targetWallet = await getReadOnlyWallet(targetUser.wallet_address);
       const targetTongo = createTongoProvider(targetWallet, "STRK");
       toKey = { x: targetTongo.recipientId.x.toString(), y: targetTongo.recipientId.y.toString() };
     } catch (err: any) {
@@ -147,7 +147,7 @@ confidential.post("/transfer", async (c) => {
   }
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tongo = createTongoProvider(wallet, tokenSymbol);
     const transferAmount = Amount.parse(amount, token.decimals, token.symbol);
 
@@ -174,7 +174,7 @@ confidential.post("/withdraw", async (c) => {
   const token = resolveToken(tokenSymbol);
   if (!token) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tongo = createTongoProvider(wallet, tokenSymbol);
     const withdrawAmount = Amount.parse(amount, token.decimals, token.symbol);
 

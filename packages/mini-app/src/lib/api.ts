@@ -63,11 +63,11 @@ export async function api<T = any>(
   return res.json();
 }
 
-export async function authenticate(initData: string) {
+export async function authenticate(initData: string, walletAddress?: string) {
   lastInitData = initData;
   const result = await api<{ token: string; user: any }>("/auth/validate", {
     method: "POST",
-    body: JSON.stringify({ initData }),
+    body: JSON.stringify({ initData, ...(walletAddress ? { walletAddress } : {}) }),
   });
   setAuthToken(result.token);
   return result;

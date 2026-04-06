@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { Amount } from "starkzap";
-import { getWalletForUser, getSdk } from "../services/starkzap.js";
+import { getReadOnlyWallet, getSdk } from "../services/starkzap.js";
 import { resolveToken, toStarkzapToken } from "../services/tokens.js";
 import { logTransaction, updateTransactionStatus, type DbUser } from "../services/db.js";
 import { log } from "../utils/logger.js";
@@ -104,7 +104,7 @@ staking.get("/position/:poolAddress", async (c) => {
   const user = c.get("user") as DbUser;
   const poolAddress = c.req.param("poolAddress");
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const position = await wallet.getPoolPosition(poolAddress as any);
     if (!position) return c.json({ position: null });
     const commission = await wallet.getPoolCommission(poolAddress as any);
@@ -128,7 +128,7 @@ staking.post("/stake", async (c) => {
   if (!token) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
 
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.stake(poolAddress as any, Amount.parse(amount, token.decimals, token.symbol));
     logTransaction(user.id, "stake", JSON.stringify({ poolAddress, amount, tokenSymbol }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -142,7 +142,7 @@ staking.post("/claim", async (c) => {
   const user = c.get("user") as DbUser;
   const { poolAddress } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.claimPoolRewards(poolAddress as any);
     logTransaction(user.id, "stake", JSON.stringify({ action: "claim", poolAddress }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -158,7 +158,7 @@ staking.post("/exit-intent", async (c) => {
   const token = resolveToken(tokenSymbol);
   if (!token) return c.json({ error: "invalid_token", message: "Unknown token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.exitPoolIntent(poolAddress as any, Amount.parse(amount, token.decimals, token.symbol));
     logTransaction(user.id, "stake", JSON.stringify({ action: "exit_intent", poolAddress, amount }), (tx.hash || tx.transactionHash));
     tx.wait().then(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "confirmed")).catch(() => updateTransactionStatus((tx.hash || tx.transactionHash)!, "failed"));
@@ -176,7 +176,7 @@ stakingManage.post("/position", async (c) => {
   const user = c.get("user") as DbUser;
   const { poolAddress } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const isMember = await wallet.isPoolMember(poolAddress as any);
     if (!isMember) return c.json({ position: null, isMember: false });
 
@@ -206,7 +206,7 @@ stakingManage.post("/claim-rewards", async (c) => {
   const user = c.get("user") as DbUser;
   const { poolAddress } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.claimPoolRewards(poolAddress as any);
     logTransaction(user.id, "stake", JSON.stringify({ action: "claim_rewards", poolAddress }), tx.hash);
     tx.wait().then(() => updateTransactionStatus(tx.hash, "confirmed")).catch(() => updateTransactionStatus(tx.hash, "failed"));
@@ -222,7 +222,7 @@ stakingManage.post("/exit-intent", async (c) => {
   const token = resolveToken(tokenSymbol);
   if (!token) return c.json({ error: "invalid_token" }, 400);
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const exitAmount = Amount.parse(amount, token.decimals, token.symbol);
     const tx = await wallet.exitPoolIntent(poolAddress as any, exitAmount);
     logTransaction(user.id, "stake", JSON.stringify({ action: "exit_intent", poolAddress, amount }), tx.hash);
@@ -237,7 +237,7 @@ stakingManage.post("/exit", async (c) => {
   const user = c.get("user") as DbUser;
   const { poolAddress } = await c.req.json();
   try {
-    const wallet = await getWalletForUser(user.telegram_id, user.encrypted_private_key);
+    const wallet = await getReadOnlyWallet(user.wallet_address);
     const tx = await wallet.exitPool(poolAddress as any);
     logTransaction(user.id, "stake", JSON.stringify({ action: "exit_pool", poolAddress }), tx.hash);
     tx.wait().then(() => updateTransactionStatus(tx.hash, "confirmed")).catch(() => updateTransactionStatus(tx.hash, "failed"));

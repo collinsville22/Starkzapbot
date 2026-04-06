@@ -11,7 +11,7 @@ interface WalletState {
     walletAddress: string;
   } | null;
   error: string | null;
-  login: (initData: string) => Promise<void>;
+  login: (initData: string, walletAddress?: string) => Promise<void>;
 }
 
 export const useWallet = create<WalletState>((set) => ({
@@ -20,10 +20,10 @@ export const useWallet = create<WalletState>((set) => ({
   user: null,
   error: null,
 
-  login: async (initData: string) => {
+  login: async (initData: string, walletAddress?: string) => {
     set({ isLoading: true, error: null });
     try {
-      const result = await authenticate(initData);
+      const result = await authenticate(initData, walletAddress);
       set({
         isAuthenticated: true,
         isLoading: false,

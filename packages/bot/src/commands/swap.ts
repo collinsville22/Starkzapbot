@@ -4,12 +4,17 @@ import { botAuth, botApi } from "../utils/backend.js";
 import { setState, getState, updateState, clearState } from "../utils/state.js";
 
 const TOKENS = ["ETH", "STRK", "USDC", "WBTC", "DAI", "USDT", "wstETH"];
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
 
 export async function swapCommand(ctx: Context) {
   const userId = ctx.from?.id;
   if (!userId) return;
   const parts = (ctx.message?.text || "").split(" ").slice(1);
-  if (parts.length >= 3) return executeSwap(ctx, userId, parts[0].toUpperCase(), parts[1].toUpperCase(), parts[2]);
+  if (parts.length >= 3) {
+    const kb = new InlineKeyboard().webApp("Swap in App", `${MINI_APP_URL}?startapp=swap`);
+    await ctx.reply(`Swap ${parts[2]} ${parts[0].toUpperCase()} -> ${parts[1].toUpperCase()}\n\nOpen the app to complete this swap:`, { reply_markup: kb });
+    return;
+  }
 
   setState(userId, "swap", "select_sell");
   const kb = new InlineKeyboard();
@@ -58,7 +63,8 @@ export async function handleSwapCallback(ctx: Context) {
     const state = getState(userId);
     if (!state) return;
     clearState(userId);
-    await executeSwap(ctx, userId, state.data.sellToken, state.data.buyToken, state.data.amount, state.data.slippage);
+    const kb = new InlineKeyboard().webApp("Swap in App", `${MINI_APP_URL}?startapp=swap`);
+    await ctx.editMessageText("Open the app to complete this swap:", { reply_markup: kb });
     return;
   }
 
@@ -111,7 +117,7 @@ async function showConfirmMessage(ctx: Context, state: any, quote: any, feeStr?:
     .text(slip === "200" ? "2%" : "2%", "swap:slippage:200")
     .text(slip === "500" ? "5%" : "5%", "swap:slippage:500")
     .row()
-    .text("Confirm Swap", "swap:confirm")
+    .webApp("Swap in App", `${MINI_APP_URL}?startapp=swap`)
     .text("Cancel", "swap:cancel");
 
   await ctx.reply(
@@ -122,31 +128,8 @@ async function showConfirmMessage(ctx: Context, state: any, quote: any, feeStr?:
     `Price Impact: ${impact}%\n` +
     `Provider: ${s.provider || "AVNU"}\n` +
     `Slippage: ${(parseInt(slip) / 100).toFixed(1)}% (tap to change)\n` +
-    `Network Fee: ${feeStr || s.feeStr || "Gasless"}`,
+    `Network Fee: ${feeStr || s.feeStr || "Gasless"}\n\n` +
+    `Open the app to complete this swap:`,
     { parse_mode: "Markdown", reply_markup: slipKb }
   );
-}
-
-async function executeSwap(ctx: Context, userId: number, tokenIn: string, tokenOut: string, amount: string, slippage?: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first to set up your wallet."); return; }
-
-  const preflight = await botApi(token, "/api/advanced/preflight", {
-    method: "POST", body: JSON.stringify({ tokenInSymbol: tokenIn, tokenOutSymbol: tokenOut, amount }),
-  }).catch(() => ({ ok: true }));
-
-  if (!preflight.ok) {
-    await ctx.reply(`Simulation failed: ${preflight.reason}\n\nSwap aborted.`);
-    return;
-  }
-
-  await ctx.reply(`Swapping ${amount} ${tokenIn} → ${tokenOut}...`);
-
-  const result = await botApi(token, "/api/swap/execute", {
-    method: "POST", body: JSON.stringify({ tokenIn, tokenOut, amountIn: amount, slippageBps: parseInt(slippage || "100") }),
-  }).catch((e: any) => ({ error: true, message: e.message }));
-
-  if (result.error) { await ctx.reply(`Swap failed: ${result.message}`); return; }
-  const explorer = result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`;
-  await ctx.reply(`*Swap Complete!*\n\n${amount} ${tokenIn} → ${tokenOut}\n\n[View on StarkScan](${explorer})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
 }

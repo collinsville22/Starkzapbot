@@ -4,12 +4,17 @@ import { botAuth, botApi } from "../utils/backend.js";
 import { setState, getState, updateState, clearState } from "../utils/state.js";
 
 const TOKENS = ["STRK", "ETH", "USDC", "WBTC", "DAI", "USDT"];
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
 
 export async function sendCommand(ctx: Context) {
   const userId = ctx.from?.id;
   if (!userId) return;
   const parts = (ctx.message?.text || "").split(" ").slice(1);
-  if (parts.length >= 3) return executeSend(ctx, userId, parts[0], parts[1], parts[2].toUpperCase());
+  if (parts.length >= 3) {
+    const kb = new InlineKeyboard().webApp("Send in App", `${MINI_APP_URL}?startapp=send`);
+    await ctx.reply(`Send ${parts[1]} ${parts[2].toUpperCase()} to ${parts[0].slice(0, 8)}...\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
 
   const kb = new InlineKeyboard()
     .text("Normal Send", "send:mode:normal")
@@ -53,10 +58,10 @@ export async function handleSendCallback(ctx: Context) {
     ]);
 
     const kb = new InlineKeyboard()
-      .text("Fund", "send:priv:fund")
-      .text("Transfer", "send:priv:transfer")
-      .text("Withdraw", "send:priv:withdraw")
+      .webApp("Fund in App", `${MINI_APP_URL}?startapp=send`)
+      .webApp("Transfer in App", `${MINI_APP_URL}?startapp=send`)
       .row()
+      .webApp("Withdraw in App", `${MINI_APP_URL}?startapp=send`)
       .text("Check Balance", "send:priv:balance");
 
     let msg = `*Tongo Private Transfers*\n\nStatus: Live\nSupported: ${info?.supportedTokens?.join(", ") || "STRK, ETH, WBTC, USDC, USDT, DAI"}`;
@@ -66,25 +71,6 @@ export async function handleSendCallback(ctx: Context) {
     return;
   }
 
-  if (data === "send:priv:fund") {
-    setState(userId, "send", "priv_select_token", { mode: "priv_fund" });
-    const kb = new InlineKeyboard();
-    ["STRK", "ETH", "USDC", "WBTC", "DAI", "USDT"].forEach((t, i) => { kb.text(t, `send:privtoken:${t}`); if ((i + 1) % 3 === 0) kb.row(); });
-    await ctx.editMessageText("*Fund Private Balance*\n\nSelect token to deposit:", { parse_mode: "Markdown", reply_markup: kb });
-    return;
-  }
-  if (data === "send:priv:transfer") {
-    setState(userId, "send", "priv_enter_address", { mode: "priv_transfer" });
-    await ctx.editMessageText("*Private Transfer*\n\nPaste recipient's Starknet address (must be a StarkZap user):", { parse_mode: "Markdown" });
-    return;
-  }
-  if (data === "send:priv:withdraw") {
-    setState(userId, "send", "priv_select_token", { mode: "priv_withdraw" });
-    const kb = new InlineKeyboard();
-    ["STRK", "ETH", "USDC", "WBTC", "DAI", "USDT"].forEach((t, i) => { kb.text(t, `send:privtoken:${t}`); if ((i + 1) % 3 === 0) kb.row(); });
-    await ctx.editMessageText("*Withdraw to Public*\n\nSelect token:", { parse_mode: "Markdown", reply_markup: kb });
-    return;
-  }
   if (data === "send:priv:balance") {
     setState(userId, "send", "priv_bal_token", { mode: "priv_balance" });
     const kb = new InlineKeyboard();
@@ -99,14 +85,6 @@ export async function handleSendCallback(ctx: Context) {
     const bal = await botApi(token, "/api/confidential/balance", { method: "POST", body: JSON.stringify({ tokenSymbol: tokenSym }) }).catch(() => null);
     clearState(userId);
     await ctx.editMessageText(`*Private ${tokenSym} Balance*\n\nBalance: ${bal?.balance || "0"}\nPending: ${bal?.pending || "0"}`, { parse_mode: "Markdown" });
-    return;
-  }
-  if (data.startsWith("send:privtoken:")) {
-    const tokenSym = data.split(":")[2];
-    updateState(userId, "priv_enter_amount", { tokenSymbol: tokenSym });
-    const state = getState(userId)!;
-    const label = state.data.mode === "priv_fund" ? "Fund" : state.data.mode === "priv_withdraw" ? "Withdraw" : "Transfer";
-    await ctx.editMessageText(`*${label} ${tokenSym}*\n\nEnter amount:`, { parse_mode: "Markdown" });
     return;
   }
 
@@ -125,11 +103,8 @@ export async function handleSendCallback(ctx: Context) {
     const state = getState(userId);
     if (!state) return;
     clearState(userId);
-    if (state.data.mode === "normal") return executeSend(ctx, userId, state.data.recipient, state.data.amount, state.data.tokenSymbol);
-    if (state.data.mode === "batch") return executeBatch(ctx, userId, state.data.tokenSymbol, JSON.parse(state.data.recipients || "[]"));
-    if (state.data.mode === "priv_fund") return executePrivate(ctx, userId, "fund", state.data.tokenSymbol, state.data.amount);
-    if (state.data.mode === "priv_transfer") return executePrivate(ctx, userId, "transfer", state.data.tokenSymbol, state.data.amount, state.data.recipient);
-    if (state.data.mode === "priv_withdraw") return executePrivate(ctx, userId, "withdraw", state.data.tokenSymbol, state.data.amount);
+    const kb = new InlineKeyboard().webApp("Send in App", `${MINI_APP_URL}?startapp=send`);
+    await ctx.editMessageText("Open the app to complete this transaction:", { reply_markup: kb });
     return;
   }
 
@@ -153,9 +128,11 @@ export async function handleSendTextInput(ctx: Context, userId: number, text: st
     if (isNaN(parseFloat(text)) || parseFloat(text) <= 0) { await ctx.reply("Enter a valid amount:"); return true; }
     updateState(userId, "confirm", { amount: text.trim() });
     const s = getState(userId)!.data;
-    const kb = new InlineKeyboard().text("Confirm Send", "send:confirm").text("Cancel", "send:cancel");
+    const kb = new InlineKeyboard()
+      .webApp("Send in App", `${MINI_APP_URL}?startapp=send`)
+      .text("Cancel", "send:cancel");
     await ctx.reply(
-      `*Step 4/4 — Confirm Send*\n\nTo: \`${s.recipient?.slice(0, 10)}...${s.recipient?.slice(-6)}\`\nAmount: *${text.trim()} ${s.tokenSymbol}*\nFee: Gasless`,
+      `*Step 4/4 — Confirm Send*\n\nTo: \`${s.recipient?.slice(0, 10)}...${s.recipient?.slice(-6)}\`\nAmount: *${text.trim()} ${s.tokenSymbol}*\nFee: Gasless\n\nOpen the app to complete this transaction:`,
       { parse_mode: "Markdown", reply_markup: kb }
     );
     return true;
@@ -190,45 +167,15 @@ export async function handleSendTextInput(ctx: Context, userId: number, text: st
     updateState(userId, "confirm", { amount: text.trim() });
     const s = getState(userId)!.data;
     const label = s.mode === "priv_fund" ? "Fund Private Balance" : s.mode === "priv_withdraw" ? "Withdraw to Public" : "Private Transfer";
-    const kb = new InlineKeyboard().text(`Confirm ${label}`, "send:confirm").text("Cancel", "send:cancel");
+    const kb = new InlineKeyboard()
+      .webApp(`${label} in App`, `${MINI_APP_URL}?startapp=send`)
+      .text("Cancel", "send:cancel");
     let msg = `*Confirm ${label}*\n\nAmount: *${text.trim()} ${s.tokenSymbol}*`;
     if (s.recipient) msg += `\nTo: \`${s.recipient.slice(0, 10)}...${s.recipient.slice(-6)}\``;
-    msg += `\nProtocol: Tongo (ZK proofs)\nFee: Gasless`;
+    msg += `\nProtocol: Tongo (ZK proofs)\nFee: Gasless\n\nOpen the app to complete this transaction:`;
     await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
     return true;
   }
 
   return false;
-}
-
-async function executeSend(ctx: Context, userId: number, recipient: string, amount: string, tokenSymbol: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`Sending ${amount} ${tokenSymbol} to ${recipient.slice(0, 8)}...${recipient.slice(-6)}...`);
-  const result = await botApi(token, "/api/transfer/send", { method: "POST", body: JSON.stringify({ tokenSymbol, amount, recipient }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Sent!* ${amount} ${tokenSymbol}\n\n[View on StarkScan](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function executeBatch(ctx: Context, userId: number, tokenSymbol: string, transfers: Array<{to: string; amount: string}>) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`Sending ${tokenSymbol} to ${transfers.length} recipients in 1 transaction...`);
-  const result = await botApi(token, "/api/advanced/batch-transfer", { method: "POST", body: JSON.stringify({ tokenSymbol, transfers }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Batch Sent!* ${tokenSymbol} to ${transfers.length} recipients\n\n[View on StarkScan](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function executePrivate(ctx: Context, userId: number, action: string, tokenSymbol: string, amount: string, recipient?: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  const labels: Record<string, string> = { fund: "Funding", transfer: "Sending privately", withdraw: "Withdrawing" };
-  await ctx.reply(`${labels[action] || action} ${amount} ${tokenSymbol}...`);
-  const endpoint = action === "fund" ? "/api/confidential/fund" : action === "transfer" ? "/api/confidential/transfer" : "/api/confidential/withdraw";
-  const body: any = { tokenSymbol, amount };
-  if (recipient) body.recipientAddress = recipient;
-  const result = await botApi(token, endpoint, { method: "POST", body: JSON.stringify(body) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  const doneLabels: Record<string, string> = { fund: "Funded!", transfer: "Sent Privately!", withdraw: "Withdrawn!" };
-  await ctx.reply(`*${doneLabels[action]}* ${amount} ${tokenSymbol}\n\n[View on StarkScan](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
 }

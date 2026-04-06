@@ -4,13 +4,23 @@ import { botAuth, botApi } from "../utils/backend.js";
 import { setState, getState, updateState, clearState, setCache, getCache } from "../utils/state.js";
 
 const TOKENS = ["STRK", "ETH", "USDC", "WBTC", "DAI"];
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
 
 export async function dcaCommand(ctx: Context) {
   const userId = ctx.from?.id;
   if (!userId) return;
   const parts = (ctx.message?.text || "").split(" ").slice(1);
-  if (parts[0] === "create" && parts.length >= 6) return createDirect(ctx, userId, parts[1], parts[2], parts[3], parts[4], parts[5]);
-  if (parts[0] === "cancel" && parts[1]) return cancelOrder(ctx, userId, parts[1]);
+  if (parts[0] === "create" && parts.length >= 6) {
+    const freqLabels: Record<string, string> = { PT1H: "hourly", PT12H: "every 12h", P1D: "daily", P1W: "weekly" };
+    const kb = new InlineKeyboard().webApp("Create DCA in App", `${MINI_APP_URL}?startapp=dca`);
+    await ctx.reply(`DCA: ${parts[3]} ${parts[1].toUpperCase()} -> ${parts[2].toUpperCase()} (${parts[4]}/cycle, ${freqLabels[parts[5]] || parts[5]})\n\nOpen the app to create this DCA order:`, { reply_markup: kb });
+    return;
+  }
+  if (parts[0] === "cancel" && parts[1]) {
+    const kb = new InlineKeyboard().webApp("Cancel DCA in App", `${MINI_APP_URL}?startapp=dca`);
+    await ctx.reply(`Cancel DCA order ${parts[1].slice(0, 10)}...\n\nOpen the app to cancel this order:`, { reply_markup: kb });
+    return;
+  }
 
   const token = await botAuth(userId);
   if (!token) { await ctx.reply("Open the app first."); return; }
@@ -105,7 +115,7 @@ export async function handleDcaCallback(ctx: Context) {
     const cycles = parseFloat(s.totalAmount) / parseFloat(s.perCycle);
 
     const kb = new InlineKeyboard()
-      .text("Create DCA Order", "dc:confirm")
+      .webApp("Create DCA in App", `${MINI_APP_URL}?startapp=dca`)
       .text("Cancel", "dc:cancel");
 
     await ctx.editMessageText(
@@ -116,7 +126,8 @@ export async function handleDcaCallback(ctx: Context) {
       `Frequency: *${freqLabels[freq] || freq}*\n` +
       `Total cycles: ~${cycles.toFixed(0)}\n` +
       previewMsg +
-      `Fee: Gasless`,
+      `Fee: Gasless\n\n` +
+      `Open the app to create this DCA order:`,
       { parse_mode: "Markdown", reply_markup: kb }
     );
     return;
@@ -126,7 +137,8 @@ export async function handleDcaCallback(ctx: Context) {
     const state = getState(userId);
     if (!state) return;
     clearState(userId);
-    await createDirect(ctx, userId, state.data.sellToken, state.data.buyToken, state.data.totalAmount, state.data.perCycle, state.data.frequency);
+    const kb = new InlineKeyboard().webApp("Create DCA in App", `${MINI_APP_URL}?startapp=dca`);
+    await ctx.editMessageText("Open the app to create this DCA order:", { reply_markup: kb });
     return;
   }
 
@@ -148,7 +160,8 @@ export async function handleDcaCallback(ctx: Context) {
     const order = orders[idx];
     if (!order) { await ctx.editMessageText("Order not found."); return; }
     clearState(userId);
-    await cancelOrder(ctx, userId, order.id || order.orderAddress);
+    const kb = new InlineKeyboard().webApp("Cancel DCA in App", `${MINI_APP_URL}?startapp=dca`);
+    await ctx.editMessageText(`Cancel order: ${order.status} ${order.frequency}\n\nOpen the app to cancel this order:`, { reply_markup: kb });
     return;
   }
 
@@ -214,25 +227,4 @@ export async function handleDcaTextInput(ctx: Context, userId: number, text: str
   }
 
   return false;
-}
-
-async function createDirect(ctx: Context, userId: number, sell: string, buy: string, total: string, perCycle: string, freq: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  const freqLabels: Record<string, string> = { PT1H: "hourly", PT12H: "every 12h", P1D: "daily", P1W: "weekly" };
-  await ctx.reply(`Creating DCA: ${total} ${sell.toUpperCase()} → ${buy.toUpperCase()} (${perCycle}/cycle, ${freqLabels[freq] || freq})...`);
-  const result = await botApi(token, "/api/dca/create", {
-    method: "POST", body: JSON.stringify({ sellTokenSymbol: sell.toUpperCase(), buyTokenSymbol: buy.toUpperCase(), totalAmount: total, amountPerCycle: perCycle, frequency: freq }),
-  }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*DCA Created!*\n\n${total} ${sell.toUpperCase()} → ${buy.toUpperCase()}\n${freqLabels[freq] || freq}\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function cancelOrder(ctx: Context, userId: number, orderId: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply("Cancelling DCA order...");
-  const result = await botApi(token, "/api/dca/cancel", { method: "POST", body: JSON.stringify({ orderId }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Cancelled!*\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
 }

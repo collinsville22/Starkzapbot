@@ -3,14 +3,22 @@ import { InlineKeyboard } from "grammy";
 import { botAuth, botApi } from "../utils/backend.js";
 import { setState, getState, updateState, clearState, setCache, getCache } from "../utils/state.js";
 
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
+
 export async function lendCommand(ctx: Context) {
   const userId = ctx.from?.id;
   if (!userId) return;
   const parts = (ctx.message?.text || "").split(" ").slice(1);
-  if (parts[0] === "deposit" && parts.length >= 3) return executeLend(ctx, userId, "deposit", parts[1], parts[2]);
-  if (parts[0] === "withdraw" && parts.length >= 3) return executeLend(ctx, userId, "withdraw", parts[1], parts[2]);
-  if (parts[0] === "borrow" && parts.length >= 4) return executeBorrowRepay(ctx, userId, "borrow", parts[1], parts[2], parts[3]);
-  if (parts[0] === "repay" && parts.length >= 4) return executeBorrowRepay(ctx, userId, "repay", parts[1], parts[2], parts[3]);
+  if ((parts[0] === "deposit" || parts[0] === "withdraw") && parts.length >= 3) {
+    const kb = new InlineKeyboard().webApp("Open App to Execute", `${MINI_APP_URL}?startapp=lend`);
+    await ctx.reply(`${parts[0] === "deposit" ? "Deposit" : "Withdraw"} ${parts[1]} ${parts[2].toUpperCase()}\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
+  if ((parts[0] === "borrow" || parts[0] === "repay") && parts.length >= 4) {
+    const kb = new InlineKeyboard().webApp("Open App to Execute", `${MINI_APP_URL}?startapp=lend`);
+    await ctx.reply(`${parts[0] === "borrow" ? "Borrow" : "Repay"} ${parts[1]} ${parts[2].toUpperCase()} against ${parts[3].toUpperCase()}\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
 
   const token = await botAuth(userId);
   if (!token) { await ctx.reply("Open the app first to set up your wallet."); return; }
@@ -92,10 +100,8 @@ export async function handleLendCallback(ctx: Context) {
 
   if (data === "ld:deposit" || data === "ld:withdraw") {
     const action = data === "ld:deposit" ? "deposit" : "withdraw";
-    // Use updateState to preserve markets cache from /lend command
     updateState(userId, "select_token", { action });
 
-    // Re-fetch markets if cache was lost
     let markets = getCache(userId, "markets");
     if (!markets || markets.length === 0) {
       const res = await botApi(authToken, "/api/lending/markets").catch(() => ({ markets: [] }));
@@ -124,20 +130,9 @@ export async function handleLendCallback(ctx: Context) {
   }
 
   if (data === "ld:wmax") {
-    updateState(userId, "wmax_token", { action: "withdrawmax" });
-    const kb = new InlineKeyboard();
-    TOKENS.forEach((t, i) => { kb.text(t, `ld:wm:${t}`); if ((i + 1) % 3 === 0) kb.row(); });
-    await ctx.editMessageText("*Withdraw All*\n\nWithdraw principal + all earned yield.\n\nSelect token:", { parse_mode: "Markdown", reply_markup: kb });
-    return;
-  }
-
-  if (data.startsWith("ld:wm:")) {
-    const tokenSym = data.split(":")[2];
     clearState(userId);
-    await ctx.editMessageText(`Withdrawing all ${tokenSym}...`);
-    const result = await botApi(authToken, "/api/lending/withdraw-max", { method: "POST", body: JSON.stringify({ tokenSymbol: tokenSym }) }).catch((e: any) => ({ error: true, message: e.message }));
-    if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-    await ctx.reply(`*Withdrawn All ${tokenSym}!*\nPrincipal + earned yield returned.\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
+    const kb = new InlineKeyboard().webApp("Withdraw All in App", `${MINI_APP_URL}?startapp=lend`);
+    await ctx.editMessageText("Open the app to withdraw all:", { reply_markup: kb });
     return;
   }
 
@@ -261,9 +256,9 @@ export async function handleLendCallback(ctx: Context) {
     const state = getState(userId);
     if (!state) return;
     clearState(userId);
-    if (state.data.action === "deposit" || state.data.action === "withdraw")
-      return executeLend(ctx, userId, state.data.action, state.data.amount, state.data.tokenSymbol, state.data.poolAddress);
-    return executeBorrowRepay(ctx, userId, state.data.action, state.data.amount, state.data.debtToken, state.data.collateralToken);
+    const kb = new InlineKeyboard().webApp("Open App to Execute", `${MINI_APP_URL}?startapp=lend`);
+    await ctx.editMessageText("Open the app to complete this transaction:", { reply_markup: kb });
+    return;
   }
 
   if (data === "ld:cancel") { clearState(userId); await ctx.editMessageText("Cancelled."); }
@@ -288,7 +283,9 @@ export async function handleLendTextInput(ctx: Context, userId: number, text: st
     }
   }
 
-  const kb = new InlineKeyboard().text("Confirm", "ld:confirm").text("Cancel", "ld:cancel");
+  const kb = new InlineKeyboard()
+    .webApp("Open App to Execute", `${MINI_APP_URL}?startapp=lend`)
+    .text("Cancel", "ld:cancel");
   let msg = `*Confirm ${s.action}*\n\n`;
   if (s.action === "deposit" || s.action === "withdraw") {
     msg += `Amount: *${text.trim()} ${s.tokenSymbol}*\n`;
@@ -297,27 +294,7 @@ export async function handleLendTextInput(ctx: Context, userId: number, text: st
     msg += `${s.action === "borrow" ? "Borrow" : "Repay"}: *${text.trim()} ${s.debtToken}*\n`;
     msg += `Collateral: ${s.collateralToken}\n`;
   }
-  msg += `Protocol: Vesu\nFee: Gasless${healthMsg}`;
+  msg += `Protocol: Vesu\nFee: Gasless${healthMsg}\n\nOpen the app to complete this transaction:`;
   await ctx.reply(msg, { parse_mode: "Markdown", reply_markup: kb });
   return true;
-}
-
-async function executeLend(ctx: Context, userId: number, action: string, amount: string, tokenSymbol: string, poolAddress?: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`${action === "deposit" ? "Depositing" : "Withdrawing"} ${amount} ${tokenSymbol.toUpperCase()}...`);
-  const body: any = { tokenSymbol: tokenSymbol.toUpperCase(), amount };
-  if (poolAddress) body.poolAddress = poolAddress;
-  const result = await botApi(token, `/api/lending/${action}`, { method: "POST", body: JSON.stringify(body) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*${action === "deposit" ? "Deposited" : "Withdrawn"}!* ${amount} ${tokenSymbol.toUpperCase()}\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function executeBorrowRepay(ctx: Context, userId: number, action: string, amount: string, debtToken: string, collateralToken: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`${action === "borrow" ? "Borrowing" : "Repaying"} ${amount} ${debtToken.toUpperCase()}...`);
-  const result = await botApi(token, `/api/lending/${action}`, { method: "POST", body: JSON.stringify({ collateralTokenSymbol: collateralToken.toUpperCase(), debtTokenSymbol: debtToken.toUpperCase(), amount }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*${action === "borrow" ? "Borrowed" : "Repaid"}!* ${amount} ${debtToken.toUpperCase()}\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
 }

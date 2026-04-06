@@ -1,5 +1,8 @@
 import type { Context } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { botAuth, botApi } from "../utils/backend.js";
+
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
 
 export async function deployCommand(ctx: Context) {
   const userId = ctx.from?.id;
@@ -13,13 +16,6 @@ export async function deployCommand(ctx: Context) {
     return;
   }
 
-  await ctx.reply("Deploying your account on Starknet... (uses small STRK fee)");
-  try {
-    const result = await botApi(token, "/api/advanced/deploy", { method: "POST" });
-    if (result.deployed) {
-      await ctx.reply(`*Account Deployed!*\n\n${result.message}`, { parse_mode: "Markdown" });
-    } else {
-      await ctx.reply(`Deploy failed: ${result.message}`);
-    }
-  } catch (err: any) { await ctx.reply(`Deploy error: ${err.message}`); }
+  const kb = new InlineKeyboard().webApp("Deploy in App", `${MINI_APP_URL}?startapp=deploy`);
+  await ctx.reply("Your account is not yet deployed.\n\nOpen the app to deploy your Starknet account:", { reply_markup: kb });
 }

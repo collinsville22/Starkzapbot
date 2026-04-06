@@ -3,13 +3,27 @@ import { InlineKeyboard } from "grammy";
 import { botAuth, botApi, botPublicApi } from "../utils/backend.js";
 import { setState, getState, updateState, clearState, setCache, getCache } from "../utils/state.js";
 
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
+
 export async function stakeCommand(ctx: Context) {
   const userId = ctx.from?.id;
   if (!userId) return;
   const parts = (ctx.message?.text || "").split(" ").slice(1);
-  if (parts[0] === "claim" && parts[1]) return claimRewards(ctx, userId, parts[1]);
-  if (parts[0] === "unstake" && parts.length >= 4) return unstake(ctx, userId, parts[1], parts[2], parts[3]);
-  if (parts.length >= 3 && parts[0].startsWith("0x")) return executeStake(ctx, userId, parts[0], parts[1], parts[2]);
+  if (parts[0] === "claim" && parts[1]) {
+    const kb = new InlineKeyboard().webApp("Claim in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.reply(`Claim rewards for pool ${parts[1].slice(0, 10)}...\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
+  if (parts[0] === "unstake" && parts.length >= 4) {
+    const kb = new InlineKeyboard().webApp("Unstake in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.reply(`Unstake ${parts[2]} ${parts[3]} from pool ${parts[1].slice(0, 10)}...\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
+  if (parts.length >= 3 && parts[0].startsWith("0x")) {
+    const kb = new InlineKeyboard().webApp("Stake in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.reply(`Stake ${parts[1]} ${parts[2]} in pool ${parts[0].slice(0, 10)}...\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
+    return;
+  }
 
   setState(userId, "stake", "select_token");
 
@@ -132,19 +146,22 @@ export async function handleStakeCallback(ctx: Context) {
     const state = getState(userId);
     if (!state) return;
     clearState(userId);
-    await executeStake(ctx, userId, state.data.poolAddress, state.data.amount, state.data.poolToken);
+    const kb = new InlineKeyboard().webApp("Stake in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.editMessageText("Open the app to complete this stake:", { reply_markup: kb });
     return;
   }
   if (data === "sk:cancel") { clearState(userId); await ctx.editMessageText("Cancelled."); return; }
 
   if (data === "sk:claim") {
-    setState(userId, "stake", "claim_enter_pool");
-    await ctx.editMessageText("*Claim Rewards*\n\nPaste the pool address:", { parse_mode: "Markdown" });
+    clearState(userId);
+    const kb = new InlineKeyboard().webApp("Claim in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.editMessageText("Open the app to claim your staking rewards:", { reply_markup: kb });
     return;
   }
   if (data === "sk:unstk") {
-    setState(userId, "stake", "unstake_enter_pool");
-    await ctx.editMessageText("*Unstake*\n\nPaste the pool address:", { parse_mode: "Markdown" });
+    clearState(userId);
+    const kb = new InlineKeyboard().webApp("Unstake in App", `${MINI_APP_URL}?startapp=stake`);
+    await ctx.editMessageText("Open the app to unstake your tokens:", { reply_markup: kb });
     return;
   }
   if (data === "sk:pos") {
@@ -152,7 +169,7 @@ export async function handleStakeCallback(ctx: Context) {
     await ctx.editMessageText("*Check Position*\n\nPaste pool address to check your position:", { parse_mode: "Markdown" });
     return;
   }
-  if (data === "sk:noop") { /* do nothing */ return; }
+  if (data === "sk:noop") { return; }
 }
 
 export async function handleStakeTextInput(ctx: Context, userId: number, text: string) {
@@ -168,7 +185,9 @@ export async function handleStakeTextInput(ctx: Context, userId: number, text: s
     if (apyRes && s.poolToken === "STRK") {
       apyLine = `Net APY: *${(apyRes.strkApy * (1 - parseInt(s.commission) / 100)).toFixed(2)}%*\n`;
     }
-    const kb = new InlineKeyboard().text("Confirm Stake", "sk:confirm").text("Cancel", "sk:cancel");
+    const kb = new InlineKeyboard()
+      .webApp("Stake in App", `${MINI_APP_URL}?startapp=stake`)
+      .text("Cancel", "sk:cancel");
     await ctx.reply(
       `*Step 5/5 — Confirm*\n\n` +
       `Validator: *${s.validatorName}*\n` +
@@ -176,31 +195,10 @@ export async function handleStakeTextInput(ctx: Context, userId: number, text: s
       `Amount: *${text.trim()} ${s.poolToken}*\n` +
       `Fee: ${s.commission}%\n` +
       apyLine +
-      `StarkZap: 0%\nNetwork: Gasless`,
+      `StarkZap: 0%\nNetwork: Gasless\n\n` +
+      `Open the app to complete this stake:`,
       { parse_mode: "Markdown", reply_markup: kb }
     );
-    return true;
-  }
-
-  if (state.step === "claim_enter_pool") {
-    if (!text.startsWith("0x")) { await ctx.reply("Enter a valid address (0x...):"); return true; }
-    clearState(userId);
-    await claimRewards(ctx, userId, text.trim());
-    return true;
-  }
-
-  if (state.step === "unstake_enter_pool") {
-    if (!text.startsWith("0x")) { await ctx.reply("Enter a valid address (0x...):"); return true; }
-    updateState(userId, "unstake_details", { poolAddress: text.trim() });
-    await ctx.reply("Enter amount and token:\nExample: `100 STRK`", { parse_mode: "Markdown" });
-    return true;
-  }
-
-  if (state.step === "unstake_details") {
-    const [amount, token] = text.trim().split(/\s+/);
-    if (!amount || !token) { await ctx.reply("Format: `amount TOKEN`", { parse_mode: "Markdown" }); return true; }
-    clearState(userId);
-    await unstake(ctx, userId, state.data.poolAddress, amount, token.toUpperCase());
     return true;
   }
 
@@ -214,45 +212,18 @@ export async function handleStakeTextInput(ctx: Context, userId: number, text: s
     }).catch(() => null);
     if (!pos?.isMember) { await ctx.reply("You are not a member of this pool."); return true; }
     const p = pos.position;
+    const kb = new InlineKeyboard()
+      .webApp("Claim in App", `${MINI_APP_URL}?startapp=stake`)
+      .webApp("Unstake in App", `${MINI_APP_URL}?startapp=stake`);
     await ctx.reply(
       `*Staking Position*\n\n` +
       `Staked: ${p.staked}\nRewards: ${p.rewards}\nTotal: ${p.total}\n` +
       `Commission: ${p.commissionPercent}%\n` +
-      (p.unpoolTime ? `Exit available: ${new Date(p.unpoolTime).toLocaleDateString()}\n` : "") +
-      `\nClaim: /stake claim ${text.trim()}`,
-      { parse_mode: "Markdown" }
+      (p.unpoolTime ? `Exit available: ${new Date(p.unpoolTime).toLocaleDateString()}\n` : ""),
+      { parse_mode: "Markdown", reply_markup: kb }
     );
     return true;
   }
 
   return false;
-}
-
-async function executeStake(ctx: Context, userId: number, pool: string, amount: string, tokenSymbol: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`Staking ${amount} ${tokenSymbol}...`);
-  const result = await botApi(token, "/api/staking/stake", {
-    method: "POST", body: JSON.stringify({ poolAddress: pool, amount, tokenSymbol }),
-  }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Staked!* ${amount} ${tokenSymbol}\n\nClaim: /stake claim ${pool}\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function claimRewards(ctx: Context, userId: number, pool: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply("Claiming rewards...");
-  const result = await botApi(token, "/api/staking-manage/claim-rewards", { method: "POST", body: JSON.stringify({ poolAddress: pool }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Claimed!*\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-}
-
-async function unstake(ctx: Context, userId: number, pool: string, amount: string, tokenSymbol: string) {
-  const token = await botAuth(userId);
-  if (!token) { await ctx.reply("Open the app first."); return; }
-  await ctx.reply(`Unstaking ${amount} ${tokenSymbol}...`);
-  const result = await botApi(token, "/api/staking-manage/exit-intent", { method: "POST", body: JSON.stringify({ poolAddress: pool, amount, tokenSymbol }) }).catch((e: any) => ({ error: true, message: e.message }));
-  if (result.error) { await ctx.reply(`Failed: ${result.message}`); return; }
-  await ctx.reply(`*Unstake Started!*\nComplete after waiting period.\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
 }

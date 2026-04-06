@@ -1,5 +1,8 @@
 import type { Context } from "grammy";
+import { InlineKeyboard } from "grammy";
 import { botAuth, botApi } from "../utils/backend.js";
+
+const MINI_APP_URL = process.env.MINI_APP_URL || "https://starkzap-azure.vercel.app";
 
 export async function privateCommand(ctx: Context) {
   const userId = ctx.from?.id;
@@ -42,38 +45,20 @@ export async function privateCommand(ctx: Context) {
   }
 
   if (action === "fund" && parts.length >= 3) {
-    await ctx.reply(`Funding private ${parts[2].toUpperCase()} balance with ${parts[1]}...`);
-    try {
-      const result = await botApi(token, "/api/confidential/fund", {
-        method: "POST", body: JSON.stringify({ tokenSymbol: parts[2].toUpperCase(), amount: parts[1] }),
-      });
-      if (result.error) { await ctx.reply(`Fund failed: ${result.message}`); return; }
-      await ctx.reply(`*Funded!* ${parts[1]} ${parts[2].toUpperCase()} deposited privately\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-    } catch (err: any) { await ctx.reply(`Fund error: ${err.message}`); }
+    const kb = new InlineKeyboard().webApp("Fund in App", `${MINI_APP_URL}?startapp=send`);
+    await ctx.reply(`Fund ${parts[1]} ${parts[2].toUpperCase()} to private balance\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
     return;
   }
 
   if (action === "send" && parts.length >= 4) {
-    await ctx.reply(`Sending ${parts[2]} ${parts[3].toUpperCase()} privately to ${parts[1].slice(0, 8)}...`);
-    try {
-      const result = await botApi(token, "/api/confidential/transfer", {
-        method: "POST", body: JSON.stringify({ tokenSymbol: parts[3].toUpperCase(), amount: parts[2], recipientAddress: parts[1] }),
-      });
-      if (result.error) { await ctx.reply(`Private send failed: ${result.message}`); return; }
-      await ctx.reply(`*Sent Privately!* ${parts[2]} ${parts[3].toUpperCase()} (ZK proof)\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-    } catch (err: any) { await ctx.reply(`Send error: ${err.message}`); }
+    const kb = new InlineKeyboard().webApp("Send Privately in App", `${MINI_APP_URL}?startapp=send`);
+    await ctx.reply(`Private send ${parts[2]} ${parts[3].toUpperCase()} to ${parts[1].slice(0, 8)}...\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
     return;
   }
 
   if (action === "withdraw" && parts.length >= 3) {
-    await ctx.reply(`Withdrawing ${parts[1]} ${parts[2].toUpperCase()} to public...`);
-    try {
-      const result = await botApi(token, "/api/confidential/withdraw", {
-        method: "POST", body: JSON.stringify({ tokenSymbol: parts[2].toUpperCase(), amount: parts[1] }),
-      });
-      if (result.error) { await ctx.reply(`Withdraw failed: ${result.message}`); return; }
-      await ctx.reply(`*Withdrawn!* ${parts[1]} ${parts[2].toUpperCase()} back to public\n\n[View](${result.explorerUrl || `https://starkscan.co/tx/${result.txHash}`})`, { parse_mode: "Markdown", link_preview_options: { is_disabled: true } });
-    } catch (err: any) { await ctx.reply(`Withdraw error: ${err.message}`); }
+    const kb = new InlineKeyboard().webApp("Withdraw in App", `${MINI_APP_URL}?startapp=send`);
+    await ctx.reply(`Withdraw ${parts[1]} ${parts[2].toUpperCase()} to public\n\nOpen the app to complete this transaction:`, { reply_markup: kb });
     return;
   }
 

@@ -4,14 +4,17 @@ import { TokenSelector } from "../components/TokenSelector.js";
 import { ConfirmSheet } from "../components/ConfirmSheet.js";
 import { TxStatus } from "../components/TxStatus.js";
 import { IconFlip } from "../components/Icons.js";
-import { getSwapQuote, executeSwap, getPortfolio, waitForTx, preflightSwap, estimateSwapFee, getSwapProviders } from "../lib/api.js";
+import { getSwapQuote, getPortfolio, estimateSwapFee, getSwapProviders } from "../lib/api.js";
 import { useTelegram } from "../hooks/useTelegram.js";
 import type { Token } from "@starkzap-tg/shared";
 import { useTokens } from "../hooks/useTokens.js";
+import { useClientWallet } from "../hooks/useClientWallet.js";
+import { Amount } from "starkzap";
 
 export function Swap() {
   const { haptic } = useTelegram();
   const { getToken } = useTokens();
+  const { getWallet } = useClientWallet();
   const [tokenIn, setTokenIn] = useState<Token | null>(null);
   const [tokenOut, setTokenOut] = useState<Token | null>(null);
   const [amountIn, setAmountIn] = useState("");
@@ -30,8 +33,6 @@ export function Swap() {
   const [swapProviders, setSwapProviders] = useState<string[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<string>("");
   const [feeEstimate, setFeeEstimate] = useState<string | null>(null);
-  const [preflightOk, setPreflightOk] = useState<boolean | null>(null);
-  const [preflightReason, setPreflightReason] = useState<string>("");
   const quoteTimer = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
@@ -93,21 +94,24 @@ export function Swap() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      const preflight = await preflightSwap({ tokenInSymbol: tokenIn.symbol, tokenOutSymbol: tokenOut.symbol, amount: amountIn }).catch(() => ({ ok: true }));
-      if (!preflight.ok) {
-        setPreflightOk(false);
-        setPreflightReason(preflight.reason || "Simulation failed");
-        setTxStatus("failed");
-        return;
-      }
-      const result = await executeSwap({ tokenIn: tokenIn.symbol, tokenOut: tokenOut.symbol, amountIn, slippageBps: parseInt(slippage) || 100 });
-      setExplorerUrl(result.explorerUrl);
-      setTxHash(result.txHash);
+      const wallet = getWallet();
+      const toSdkToken = (t: Token) => ({ name: t.name, symbol: t.symbol, decimals: t.decimals, address: t.address });
+      const tx = await wallet.swap({
+        tokenIn: toSdkToken(tokenIn),
+        tokenOut: toSdkToken(tokenOut),
+        amountIn: Amount.parse(amountIn, tokenIn.decimals, tokenIn.symbol),
+        slippageBps: BigInt(parseInt(slippage) || 100),
+      });
+      setExplorerUrl(tx.explorerUrl);
+      setTxHash(tx.hash);
       setTxStatus("pending");
       haptic?.notificationOccurred("success");
-      waitForTx(result.txHash, (status) => {
-        setTxStatus(status);
-        haptic?.notificationOccurred(status === "confirmed" ? "success" : "error");
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
       });
     } catch {
       setTxStatus("failed");

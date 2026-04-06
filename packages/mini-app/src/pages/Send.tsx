@@ -4,16 +4,19 @@ import { TokenSelector } from "../components/TokenSelector.js";
 import { ConfirmSheet } from "../components/ConfirmSheet.js";
 import { TxStatus } from "../components/TxStatus.js";
 import { IconShield } from "../components/Icons.js";
-import { sendTokens, batchTransfer, signMessage, getConfidentialInfo, confidentialFund, confidentialTransfer, confidentialWithdraw, getConfidentialBalance, getMyTongoId, waitForTx } from "../lib/api.js";
+import { getConfidentialInfo, getConfidentialBalance, getMyTongoId } from "../lib/api.js";
 import { useTelegram } from "../hooks/useTelegram.js";
 import type { Token } from "@starkzap-tg/shared";
 import { useTokens } from "../hooks/useTokens.js";
+import { useClientWallet } from "../hooks/useClientWallet.js";
+import { Amount } from "starkzap";
 
 type Mode = "normal" | "batch" | "confidential" | "sign";
 
 export function Send() {
   const { haptic } = useTelegram();
   const { getToken } = useTokens();
+  const { getWallet } = useClientWallet();
   const [mode, setMode] = useState<Mode>("normal");
   const [token, setToken] = useState<Token | null>(null);
   const [amount, setAmount] = useState("");
@@ -53,28 +56,38 @@ export function Send() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      let result: any;
+      const wallet = getWallet();
+      const sdkToken = { name: token.name, symbol: token.symbol, decimals: token.decimals, address: token.address };
+      let tx: any;
       if (mode === "confidential") {
+        const parsedAmount = Amount.parse(amount, token.decimals, token.symbol);
         if (confAction === "fund") {
-          result = await confidentialFund({ tokenSymbol: token.symbol, amount });
+          tx = await wallet.tx().confidentialFund({ token: sdkToken, amount: parsedAmount }).send();
         } else if (confAction === "transfer") {
-          result = await confidentialTransfer({ tokenSymbol: token.symbol, amount, recipientAddress: confRecipient });
+          tx = await wallet.tx().confidentialTransfer({ token: sdkToken, amount: parsedAmount, recipientAddress: confRecipient }).send();
         } else {
-          result = await confidentialWithdraw({ tokenSymbol: token.symbol, amount });
+          tx = await wallet.tx().confidentialWithdraw({ token: sdkToken, amount: parsedAmount }).send();
         }
       } else if (mode === "batch") {
         const valid = batchRecipients.filter((r) => r.to && r.amount);
         if (valid.length === 0) { setTxStatus("failed"); return; }
-        result = await batchTransfer(token.symbol, valid);
+        const transfers = valid.map((r) => ({ to: r.to, amount: Amount.parse(r.amount, token.decimals, token.symbol) }));
+        tx = await wallet.transfer(sdkToken, transfers);
       } else {
-        result = await sendTokens({ tokenSymbol: token.symbol, amount, recipient });
+        tx = await wallet.transfer(sdkToken, [{ to: recipient, amount: Amount.parse(amount, token.decimals, token.symbol) }]);
       }
-      setTxHash(result?.txHash);
-      setExplorerUrl(result?.explorerUrl);
+      setTxHash(tx?.hash);
+      setExplorerUrl(tx?.explorerUrl);
       setTxStatus("pending");
       haptic?.notificationOccurred("success");
-      if (result?.txHash) {
-        waitForTx(result.txHash, (s) => { setTxStatus(s); haptic?.notificationOccurred(s === "confirmed" ? "success" : "error"); });
+      if (tx?.wait) {
+        tx.wait().then(() => {
+          setTxStatus("confirmed");
+          haptic?.notificationOccurred("success");
+        }).catch(() => {
+          setTxStatus("failed");
+          haptic?.notificationOccurred("error");
+        });
       }
     } catch {
       setTxStatus("failed");
@@ -86,14 +99,15 @@ export function Send() {
     if (!messageToSign) return;
     setTxStatus("signing");
     try {
+      const wallet = getWallet();
       const typedData = {
         types: { StarkNetDomain: [{ name: "name", type: "felt" }], Message: [{ name: "message", type: "felt" }] },
         primaryType: "Message",
         domain: { name: "StarkZap" },
         message: { message: messageToSign },
       };
-      const result = await signMessage(typedData);
-      setSignature(result.signature);
+      const result = await wallet.signMessage(typedData);
+      setSignature(Array.isArray(result) ? result : [result]);
       setTxStatus("confirmed");
       haptic?.notificationOccurred("success");
     } catch {

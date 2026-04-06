@@ -7,12 +7,13 @@ import { TxStatus } from "../components/TxStatus.js";
 import { HealthBar } from "../components/HealthBar.js";
 import { TokenIcon } from "../components/Icons.js";
 import {
-  lendDeposit, lendBorrow, lendRepay, lendWithdraw, lendWithdrawMax,
-  getLendingHealth, getLendingMarkets, getLendingPositions, getMaxBorrow, estimateMaxBorrow, quoteLendingHealth, waitForTx,
+  getLendingHealth, getLendingMarkets, getLendingPositions, getMaxBorrow, estimateMaxBorrow, quoteLendingHealth,
 } from "../lib/api.js";
 import { useTelegram } from "../hooks/useTelegram.js";
 import { useTokens } from "../hooks/useTokens.js";
 import type { Token } from "@starkzap-tg/shared";
+import { useClientWallet } from "../hooks/useClientWallet.js";
+import { Amount } from "starkzap";
 
 const ACTIONS = ["Deposit", "Withdraw", "Borrow", "Repay"];
 
@@ -26,6 +27,7 @@ interface Market {
 export function Lend() {
   const { haptic } = useTelegram();
   const { getToken } = useTokens();
+  const { getWallet } = useClientWallet();
   const [action, setAction] = useState("Deposit");
   const [token, setToken] = useState<Token | null>(null);
   const [collateralToken, setCollateralToken] = useState<Token | null>(null);
@@ -103,23 +105,42 @@ export function Lend() {
     }
   }, [amount, token?.symbol, collateralToken?.symbol, action]);
 
+  const toSdkToken = (t: Token) => ({ name: t.name, symbol: t.symbol, decimals: t.decimals, address: t.address });
+
   const handleExecute = async () => {
     if (!token) return;
     setShowConfirm(false);
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      let result: any;
+      const wallet = getWallet();
+      const lending = wallet.lending();
       const poolAddress = selectedPool || undefined;
-      if (action === "Deposit") result = await lendDeposit({ tokenSymbol: token.symbol, amount, poolAddress });
-      else if (action === "Withdraw") result = await lendWithdraw({ tokenSymbol: token.symbol, amount, poolAddress });
-      else if (action === "Borrow") result = await lendBorrow({ collateralTokenSymbol: collateralToken?.symbol || "", debtTokenSymbol: token.symbol, amount, collateralAmount: collateralAmount || undefined, poolAddress });
-      else result = await lendRepay({ collateralTokenSymbol: collateralToken?.symbol || "", debtTokenSymbol: token.symbol, amount, poolAddress });
-      setTxHash(result.txHash);
-      setExplorerUrl(result.explorerUrl);
+      const sdkToken = toSdkToken(token);
+      const parsedAmount = Amount.parse(amount, token.decimals, token.symbol);
+      let tx: any;
+      if (action === "Deposit") {
+        tx = await lending.deposit({ token: sdkToken, amount: parsedAmount, poolAddress });
+      } else if (action === "Withdraw") {
+        tx = await lending.withdraw({ token: sdkToken, amount: parsedAmount, poolAddress });
+      } else if (action === "Borrow") {
+        const collSdkToken = collateralToken ? toSdkToken(collateralToken) : undefined;
+        tx = await lending.borrow({ token: sdkToken, amount: parsedAmount, collateralToken: collSdkToken, collateralAmount: collateralAmount ? Amount.parse(collateralAmount, collateralToken!.decimals, collateralToken!.symbol) : undefined, poolAddress });
+      } else {
+        const collSdkToken = collateralToken ? toSdkToken(collateralToken) : undefined;
+        tx = await lending.repay({ token: sdkToken, amount: parsedAmount, collateralToken: collSdkToken, poolAddress });
+      }
+      setTxHash(tx.hash);
+      setExplorerUrl(tx.explorerUrl);
       setTxStatus("pending");
       haptic?.notificationOccurred("success");
-      waitForTx(result.txHash, (s) => { setTxStatus(s); haptic?.notificationOccurred(s === "confirmed" ? "success" : "error"); });
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
+      });
     } catch {
       setTxStatus("failed");
       haptic?.notificationOccurred("error");
@@ -130,10 +151,22 @@ export function Lend() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      const result = await lendWithdrawMax({ tokenSymbol, poolAddress: selectedPool });
-      setTxHash(result.txHash);
+      const wallet = getWallet();
+      const lending = wallet.lending();
+      const t = getToken(tokenSymbol);
+      if (!t) throw new Error("Token not found");
+      const sdkToken = toSdkToken(t);
+      const tx = await lending.withdrawMax({ token: sdkToken, poolAddress: selectedPool || undefined });
+      setTxHash(tx.hash);
+      setExplorerUrl(tx.explorerUrl);
       setTxStatus("pending");
-      waitForTx(result.txHash, (s) => { setTxStatus(s); haptic?.notificationOccurred(s === "confirmed" ? "success" : "error"); });
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
+      });
     } catch {
       setTxStatus("failed");
       haptic?.notificationOccurred("error");

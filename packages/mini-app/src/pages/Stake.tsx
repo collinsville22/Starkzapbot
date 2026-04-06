@@ -3,11 +3,13 @@ import { TokenInput } from "../components/TokenInput.js";
 import { ConfirmSheet } from "../components/ConfirmSheet.js";
 import { TxStatus } from "../components/TxStatus.js";
 import { TokenIcon } from "../components/Icons.js";
-import { stakeTokens, getStakingTokens, getValidatorsQuick, getStakerPools, getStakingApy, getStakingPosition, claimStakingRewards, exitStakingIntent, getPortfolio, waitForTx } from "../lib/api.js";
+import { getStakingTokens, getValidatorsQuick, getStakerPools, getStakingApy, getStakingPosition, getPortfolio } from "../lib/api.js";
 import { useTelegram } from "../hooks/useTelegram.js";
 import { useTokens } from "../hooks/useTokens.js";
 import { shortenAddress } from "../lib/format.js";
 import type { Token } from "@starkzap-tg/shared";
+import { useClientWallet } from "../hooks/useClientWallet.js";
+import { Amount } from "starkzap";
 
 interface ValidatorInfo {
   name: string;
@@ -25,6 +27,7 @@ interface PoolInfo {
 export function Stake() {
   const { haptic } = useTelegram();
   const { getToken } = useTokens();
+  const { getWallet } = useClientWallet();
   const [amount, setAmount] = useState("");
   const [selectedPool, setSelectedPool] = useState<PoolInfo | null>(null);
   const [selectedValidator, setSelectedValidator] = useState<ValidatorInfo | null>(null);
@@ -110,13 +113,18 @@ export function Stake() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      const result = await stakeTokens({ poolAddress: selectedPool.address, amount, tokenSymbol: selectedToken.symbol });
-      setTxHash(result.txHash);
+      const wallet = getWallet();
+      const tx = await wallet.stake(selectedPool.address, Amount.parse(amount, selectedToken.decimals, selectedToken.symbol));
+      setTxHash(tx.hash);
+      setExplorerUrl(tx.explorerUrl);
       setTxStatus("pending");
       haptic?.notificationOccurred("success");
-      waitForTx(result.txHash, (status) => {
-        setTxStatus(status);
-        haptic?.notificationOccurred(status === "confirmed" ? "success" : "error");
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
       });
     } catch {
       setTxStatus("failed");
@@ -129,11 +137,18 @@ export function Stake() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      const result = await claimStakingRewards(selectedPool.address);
-      setTxHash(result.txHash);
-      setExplorerUrl(result.explorerUrl);
+      const wallet = getWallet();
+      const tx = await wallet.claimPoolRewards(selectedPool.address);
+      setTxHash(tx.hash);
+      setExplorerUrl(tx.explorerUrl);
       setTxStatus("pending");
-      waitForTx(result.txHash, (s) => { setTxStatus(s); haptic?.notificationOccurred(s === "confirmed" ? "success" : "error"); });
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
+      });
     } catch { setTxStatus("failed"); }
   };
 
@@ -142,11 +157,18 @@ export function Stake() {
     setTxStatus("signing");
     haptic?.notificationOccurred("warning");
     try {
-      const result = await exitStakingIntent(selectedPool.address, amount, selectedToken.symbol);
-      setTxHash(result.txHash);
-      setExplorerUrl(result.explorerUrl);
+      const wallet = getWallet();
+      const tx = await wallet.exitPoolIntent(selectedPool.address, Amount.parse(amount, selectedToken.decimals, selectedToken.symbol));
+      setTxHash(tx.hash);
+      setExplorerUrl(tx.explorerUrl);
       setTxStatus("pending");
-      waitForTx(result.txHash, (s) => { setTxStatus(s); haptic?.notificationOccurred(s === "confirmed" ? "success" : "error"); });
+      tx.wait().then(() => {
+        setTxStatus("confirmed");
+        haptic?.notificationOccurred("success");
+      }).catch(() => {
+        setTxStatus("failed");
+        haptic?.notificationOccurred("error");
+      });
     } catch { setTxStatus("failed"); }
   };
 

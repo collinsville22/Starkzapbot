@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "../hooks/useWallet.js";
-import { getPortfolio, getDeployStatus, deployAccount } from "../lib/api.js";
+import { getPortfolio, getDeployStatus } from "../lib/api.js";
+import { useClientWallet } from "../hooks/useClientWallet.js";
 import { AssetRow } from "../components/AssetRow.js";
 import { IconSend, IconSwap, IconReceive, IconCopy } from "../components/Icons.js";
 import { shortenAddress } from "../lib/format.js";
@@ -12,6 +13,7 @@ export function Home() {
   const { user } = useWallet();
   const navigate = useNavigate();
   const { haptic } = useTelegram();
+  const { getWallet } = useClientWallet();
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -77,9 +79,10 @@ export function Home() {
             <button onClick={async () => {
               setDeploying(true);
               try {
-                const res = await deployAccount();
-                if (res.deployed) { setDeployed(true); haptic?.notificationOccurred("success"); }
-                else if (res.error) { setError(res.message); haptic?.notificationOccurred("error"); }
+                const wallet = getWallet();
+                await wallet.ensureReady({ deploy: "if_needed" });
+                setDeployed(true);
+                haptic?.notificationOccurred("success");
               } catch (e: any) {
                 setError(e.message || "Deploy failed");
                 haptic?.notificationOccurred("error");

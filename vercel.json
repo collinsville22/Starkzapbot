@@ -1,0 +1,12 @@
+{
+  "installCommand": "npm install",
+  "buildCommand": "cd packages/mini-app && npx vite build",
+  "outputDirectory": "packages/mini-app/dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "https://starkzap-backend.onrender.com/api/:path*" },
+    { "source": "/auth/:path*", "destination": "https://starkzap-backend.onrender.com/auth/:path*" },
+    { "source": "/health", "destination": "https://starkzap-backend.onrender.com/health" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
